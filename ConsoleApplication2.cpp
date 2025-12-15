@@ -16,10 +16,13 @@ struct Book {
     string author;
     string genre;
     int year;
+    string annotation;  // Добавлено поле для аннотации
     bool available;
 
-    Book(int _id = 0, string _title = "", string _author = "", string _genre = "", int _year = 0)
-        : id(_id), title(_title), author(_author), genre(_genre), year(_year), available(true) {
+    Book(int _id = 0, string _title = "", string _author = "", string _genre = "",
+        int _year = 0, string _annotation = "")
+        : id(_id), title(_title), author(_author), genre(_genre),
+        year(_year), annotation(_annotation), available(true) {
     }
 };
 
@@ -93,13 +96,16 @@ private:
     vector<User> users;
     map<int, User*> userMap;
     int currentUserId;
-    string dataFile = "library_data.txt";
+    string usersFile = "users_data.txt";
+    string booksFile = "books_data.txt";
 
-    void saveAllData() {
-        ofstream file(dataFile);
-        if (!file.is_open()) return;
+    void saveUsersData() {
+        ofstream file(usersFile);
+        if (!file.is_open()) {
+            cout << "Ошибка: не удалось открыть файл пользователей для записи\n";
+            return;
+        }
 
-        // Сохраняем количество пользователей
         file << users.size() << "\n";
         for (const auto& user : users) {
             file << user.id << "\n"
@@ -112,34 +118,21 @@ private:
             }
             file << "\n";
         }
-
-        // Сохраняем количество книг
-        file << books.size() << "\n";
-        for (const auto& book : books) {
-            file << book.id << "\n"
-                << book.title << "\n"
-                << book.author << "\n"
-                << book.genre << "\n"
-                << book.year << "\n"
-                << book.available << "\n";
-        }
-
         file.close();
     }
 
-    void loadAllData() {
-        ifstream file(dataFile);
+    void loadUsersData() {
+        ifstream file(usersFile);
         if (!file.is_open()) {
-            createSampleData();
+            users.push_back(User(1, "Администратор", "admin123", true));
+            userMap[1] = &users.back();
+            saveUsersData();
             return;
         }
 
-        // Очищаем существующие данные
         users.clear();
-        books.clear();
         userMap.clear();
 
-        // Загружаем пользователей
         int userCount;
         file >> userCount;
         file.ignore();
@@ -168,15 +161,65 @@ private:
 
             userMap[id] = userPtr;
         }
+        file.close();
+    }
 
-        // Загружаем книги
+    void saveBooksData() {
+        ofstream file(booksFile);
+        if (!file.is_open()) {
+            cout << "Ошибка: не удалось открыть файл книг для записи\n";
+            return;
+        }
+
+        file << books.size() << "\n";
+        for (const auto& book : books) {
+            // Заменяем символы новой строки в аннотации на специальный маркер
+            string annotationForFile = book.annotation;
+            replace(annotationForFile.begin(), annotationForFile.end(), '\n', '|');
+
+            file << book.id << "\n"
+                << book.title << "\n"
+                << book.author << "\n"
+                << book.genre << "\n"
+                << book.year << "\n"
+                << annotationForFile << "\n"  // Сохраняем аннотацию
+                << book.available << "\n";
+        }
+        file.close();
+    }
+
+    void loadBooksData() {
+        ifstream file(booksFile);
+        if (!file.is_open()) {
+            // Создаем книги с аннотациями
+            books.push_back(Book(1, "Война и мир", "Лев Толстой", "Роман", 1869,
+                "Монументальный роман-эпопея Льва Толстого, описывающий русское общество в эпоху войн против Наполеона.\nКлючевые темы: любовь, честь, патриотизм, поиск смысла жизни."));
+
+            books.push_back(Book(2, "Преступление и наказание", "Фёдор Достоевский", "Роман", 1866,
+                "Психологический роман о бывшем студенте Родионе Раскольникове, который совершает убийство,\nчтобы проверить свою теорию о 'необыкновенных' людях, имеющих право преступать моральные законы."));
+
+            books.push_back(Book(3, "Мастер и Маргарита", "Михаил Булгаков", "Фэнтези", 1967,
+                "Мистический роман, сочетающий сатиру на советскую действительность 1930-х годов\nс философскими размышлениями о добре и зле, истине и творчестве."));
+
+            books.push_back(Book(4, "1984", "Джордж Оруэлл", "Антиутопия", 1949,
+                "Классическая антиутопия о тоталитарном обществе под контролем 'Старшего Брата'.\nРоман ввел в обиход такие понятия как 'Большой Брат', 'новояз' и 'двоемыслие'."));
+
+            books.push_back(Book(5, "Гарри Поттер и философский камень", "Джоан Роулинг", "Фэнтези", 1997,
+                "Первая книга знаменитой серии о юном волшебнике Гарри Поттере.\nМальчик-сирота discovers he is a wizard and begins his education at Hogwarts School of Witchcraft and Wizardry."));
+
+            saveBooksData();
+            return;
+        }
+
+        books.clear();
+
         int bookCount;
         file >> bookCount;
         file.ignore();
 
         for (int i = 0; i < bookCount; i++) {
             int id, year;
-            string title, author, genre;
+            string title, author, genre, annotation;
             bool available;
 
             file >> id;
@@ -184,35 +227,57 @@ private:
             getline(file, title);
             getline(file, author);
             getline(file, genre);
-            file >> year >> available;
+            file >> year;
+            file.ignore();
+            getline(file, annotation);
+            file >> available;
             file.ignore();
 
-            Book book(id, title, author, genre, year);
+            // Восстанавливаем символы новой строки в аннотации
+            replace(annotation.begin(), annotation.end(), '|', '\n');
+
+            Book book(id, title, author, genre, year, annotation);
             book.available = available;
             books.push_back(book);
         }
-
         file.close();
     }
 
-    void createSampleData() {
-        // Создаем только администратора (ID: 1, пароль: admin123)
-        users.push_back(User(1, "Администратор", "admin123", true));
-        userMap[1] = &users.back();
+    void saveAllData() {
+        saveUsersData();
+        saveBooksData();
+    }
 
-        // Создаем тестовые книги
-        books.push_back(Book(1, "Война и мир", "Лев Толстой", "Роман", 1869));
-        books.push_back(Book(2, "Преступление и наказание", "Фёдор Достоевский", "Роман", 1866));
-        books.push_back(Book(3, "Мастер и Маргарита", "Михаил Булгаков", "Фэнтези", 1967));
-        books.push_back(Book(4, "1984", "Джордж Оруэлл", "Антиутопия", 1949));
-        books.push_back(Book(5, "Гарри Поттер и философский камень", "Джоан Роулинг", "Фэнтези", 1997));
-
-        saveAllData();
+    void loadAllData() {
+        loadUsersData();
+        loadBooksData();
     }
 
     void waitForAnyKey() {
         cout << "\nНажмите любую клавишу для продолжения...";
         _getch();
+    }
+
+    // Метод для ввода многострочной аннотации
+    string inputMultilineAnnotation() {
+        string annotation;
+        string line;
+
+        cout << "Введите аннотацию (для завершения введите точку на новой строке):\n";
+        cin.ignore(); // Очищаем буфер
+
+        while (true) {
+            getline(cin, line);
+            if (line == ".") {
+                break;
+            }
+            if (!annotation.empty()) {
+                annotation += "\n";
+            }
+            annotation += line;
+        }
+
+        return annotation;
     }
 
 public:
@@ -257,7 +322,7 @@ public:
         cout << "\nРегистрация успешна! Ваш ID: " << newId << "\n";
         Sleep(1500);
 
-        saveAllData();
+        saveUsersData();
     }
 
     bool loginUser() {
@@ -306,7 +371,7 @@ public:
         system("cls");
         cout << "========== ДОБАВЛЕНИЕ НОВОЙ КНИГИ ==========\n";
 
-        string title, author, genre;
+        string title, author, genre, annotation;
         int year;
 
         cin.ignore();
@@ -334,13 +399,31 @@ public:
             return;
         }
 
+        cin.ignore(); // Очищаем буфер для ввода аннотации
+
+        // Ввод аннотации
+        cout << "\nВведите аннотацию к книге (для завершения введите точку на отдельной строке):\n";
+        cout << "Можно вводить несколько строк:\n";
+
+        string line;
+        while (true) {
+            getline(cin, line);
+            if (line == ".") {
+                break;
+            }
+            if (!annotation.empty()) {
+                annotation += "\n";
+            }
+            annotation += line;
+        }
+
         int newId = books.empty() ? 1 : books.back().id + 1;
-        books.push_back(Book(newId, title, author, genre, year));
+        books.push_back(Book(newId, title, author, genre, year, annotation));
 
         cout << "\nКнига успешно добавлена! ID книги: " << newId << "\n";
         Sleep(1500);
 
-        saveAllData();
+        saveBooksData();
     }
 
     void removeBook() {
@@ -381,7 +464,6 @@ public:
             return;
         }
 
-        // Проверяем, не выдана ли книга
         if (!it->available) {
             cout << "\nОшибка: Книга в данный момент выдана читателю!\n";
             Sleep(1500);
@@ -394,7 +476,7 @@ public:
         cout << "\nКнига \"" << bookTitle << "\" успешно удалена!\n";
         Sleep(1500);
 
-        saveAllData();
+        saveBooksData();
     }
 
     void displayAllBooks() {
@@ -411,10 +493,69 @@ public:
                     << "Название: " << book.title << "\n"
                     << "Автор: " << book.author << "\n"
                     << "Жанр: " << book.genre << "\n"
-                    << "Год: " << book.year << "\n"
-                    << "Статус: " << (book.available ? "В наличии" : "Выдана") << "\n";
+                    << "Год: " << book.year << "\n";
+
+                if (!book.annotation.empty()) {
+                    cout << "Аннотация: " << book.annotation << "\n";
+                }
+
+                cout << "Статус: " << (book.available ? "В наличии" : "Выдана") << "\n";
                 cout << "----------------------------------------\n";
             }
+        }
+
+        waitForAnyKey();
+    }
+
+    // Новый метод для подробного просмотра книги с аннотацией
+    void viewBookDetails() {
+        system("cls");
+        cout << "========== ПОДРОБНАЯ ИНФОРМАЦИЯ О КНИГЕ ==========\n";
+
+        if (books.empty()) {
+            cout << "В библиотеке пока нет книг.\n";
+            waitForAnyKey();
+            return;
+        }
+
+        cout << "Введите ID книги для просмотра (0 - отмена): ";
+        int bookId;
+        if (!(cin >> bookId)) {
+            cin.clear();
+            cin.ignore(1000, '\n');
+            cout << "\nОшибка: Неверный формат ID!\n";
+            waitForAnyKey();
+            return;
+        }
+
+        if (bookId == 0) return;
+
+        auto it = find_if(books.begin(), books.end(),
+            [bookId](const Book& b) { return b.id == bookId; });
+
+        if (it == books.end()) {
+            cout << "\nОшибка: Книга с таким ID не найдена!\n";
+            Sleep(1500);
+            return;
+        }
+
+        system("cls");
+        cout << "========== ПОДРОБНАЯ ИНФОРМАЦИЯ О КНИГЕ ==========\n\n";
+        cout << "ID: " << it->id << "\n";
+        cout << "Название: " << it->title << "\n";
+        cout << "Автор: " << it->author << "\n";
+        cout << "Жанр: " << it->genre << "\n";
+        cout << "Год издания: " << it->year << "\n";
+        cout << "Статус: " << (it->available ? "В наличии" : "Выдана") << "\n\n";
+
+        if (!it->annotation.empty()) {
+            cout << "АННОТАЦИЯ:\n";
+            cout << "========================================\n";
+            cout << it->annotation << "\n";
+            cout << "========================================\n";
+        }
+        else {
+            cout << "Аннотация: отсутствует\n";
         }
 
         waitForAnyKey();
@@ -425,13 +566,14 @@ public:
             "По названию",
             "По автору",
             "По жанру",
+            "По аннотации",  // Добавлен поиск по аннотации
             "Вернуться в меню"
         };
 
         Menu searchMenu("ПОИСК КНИГ", searchOptions);
         int choice = searchMenu.run();
 
-        if (choice == 3) return;
+        if (choice == 4) return;
 
         system("cls");
         cout << "========== ПОИСК КНИГ ==========\n";
@@ -455,16 +597,19 @@ public:
             string titleLower = book.title;
             string authorLower = book.author;
             string genreLower = book.genre;
+            string annotationLower = book.annotation;
 
             transform(titleLower.begin(), titleLower.end(), titleLower.begin(), ::tolower);
             transform(authorLower.begin(), authorLower.end(), authorLower.begin(), ::tolower);
             transform(genreLower.begin(), genreLower.end(), genreLower.begin(), ::tolower);
+            transform(annotationLower.begin(), annotationLower.end(), annotationLower.begin(), ::tolower);
 
             bool match = false;
             switch (choice) {
             case 0: match = titleLower.find(searchTerm) != string::npos; break;
             case 1: match = authorLower.find(searchTerm) != string::npos; break;
             case 2: match = genreLower.find(searchTerm) != string::npos; break;
+            case 3: match = annotationLower.find(searchTerm) != string::npos; break;  // Поиск по аннотации
             }
 
             if (match) {
@@ -483,8 +628,18 @@ public:
             for (const auto& book : foundBooks) {
                 cout << "ID: " << book->id << " - \"" << book->title << "\"\n"
                     << "   Автор: " << book->author << "\n"
-                    << "   Жанр: " << book->genre << "\n"
-                    << "   Статус: " << (book->available ? "В наличии" : "Выдана") << "\n\n";
+                    << "   Жанр: " << book->genre << "\n";
+
+                // Показываем краткую аннотацию (первые 100 символов)
+                if (!book->annotation.empty()) {
+                    string shortAnnotation = book->annotation.substr(0, 100);
+                    if (book->annotation.length() > 100) {
+                        shortAnnotation += "...";
+                    }
+                    cout << "   Аннотация: " << shortAnnotation << "\n";
+                }
+
+                cout << "   Статус: " << (book->available ? "В наличии" : "Выдана") << "\n\n";
             }
         }
 
@@ -504,7 +659,6 @@ public:
             return;
         }
 
-        // Показываем доступные книги
         cout << "Доступные книги:\n\n";
         bool hasAvailable = false;
         for (const auto& book : books) {
@@ -520,6 +674,70 @@ public:
             return;
         }
 
+        // Показать аннотацию перед взятием?
+        vector<string> borrowOptions = {
+            "Взять книгу по ID",
+            "Посмотреть аннотацию книги",
+            "Вернуться в меню"
+        };
+
+        Menu borrowMenu("ВЗЯТИЕ КНИГИ", borrowOptions);
+        int borrowChoice = borrowMenu.run();
+
+        if (borrowChoice == 2) return;
+
+        if (borrowChoice == 1) {
+            // Просмотр аннотации перед взятием
+            cout << "\nВведите ID книги для просмотра аннотации: ";
+            int previewId;
+            if (!(cin >> previewId)) {
+                cin.clear();
+                cin.ignore(1000, '\n');
+                cout << "\nОшибка: Неверный формат ID!\n";
+                waitForAnyKey();
+                return;
+            }
+
+            auto previewIt = find_if(books.begin(), books.end(),
+                [previewId](const Book& b) { return b.id == previewId; });
+
+            if (previewIt == books.end()) {
+                cout << "Ошибка: Книга с таким ID не найдена!\n";
+                Sleep(1500);
+                return;
+            }
+
+            cout << "\nАННОТАЦИЯ КНИГИ:\n";
+            cout << "════════════════════════════════════════\n";
+            cout << (previewIt->annotation.empty() ? "Аннотация отсутствует" : previewIt->annotation) << "\n";
+            cout << "════════════════════════════════════════\n\n";
+            cout << "Хотите взять эту книгу? (1 - Да, 0 - Нет): ";
+            int takeChoice;
+            cin >> takeChoice;
+
+            if (takeChoice != 1) {
+                return;
+            }
+
+            // Проверяем доступность книги
+            if (!previewIt->available) {
+                cout << "Ошибка: Эта книга уже выдана!\n";
+                Sleep(1500);
+                return;
+            }
+
+            previewIt->available = false;
+            user->borrowedBooks.push_back(previewId);
+
+            cout << "\nКнига \"" << previewIt->title << "\" успешно взята!\n";
+            Sleep(1500);
+
+            saveBooksData();
+            saveUsersData();
+            return;
+        }
+
+        // Обычное взятие по ID
         cout << "\nВведите ID книги для взятия (0 - отмена): ";
         int bookId;
         if (!(cin >> bookId)) {
@@ -553,7 +771,8 @@ public:
         cout << "\nКнига \"" << it->title << "\" успешно взята!\n";
         Sleep(1500);
 
-        saveAllData();
+        saveBooksData();
+        saveUsersData();
     }
 
     void returnBook() {
@@ -598,7 +817,6 @@ public:
             return;
         }
 
-        // Находим книгу и отмечаем как доступную
         auto libIt = find_if(books.begin(), books.end(),
             [bookId](const Book& b) { return b.id == bookId; });
 
@@ -609,7 +827,8 @@ public:
             cout << "\nКнига \"" << libIt->title << "\" успешно возвращена!\n";
             Sleep(1500);
 
-            saveAllData();
+            saveBooksData();
+            saveUsersData();
         }
     }
 
@@ -682,6 +901,7 @@ public:
     void adminMenu() {
         vector<string> options = {
             "Просмотр каталога книг",
+            "Подробная информация о книге",
             "Поиск книг",
             "Добавить книгу",
             "Удалить книгу",
@@ -698,11 +918,12 @@ public:
 
             switch (choice) {
             case 0: displayAllBooks(); break;
-            case 1: searchBooks(); break;
-            case 2: addBook(); break;
-            case 3: removeBook(); break;
-            case 4: displayUserInfo(); break;
-            case 5:
+            case 1: viewBookDetails(); break;
+            case 2: searchBooks(); break;
+            case 3: addBook(); break;
+            case 4: removeBook(); break;
+            case 5: displayUserInfo(); break;
+            case 6:
                 logout();
                 return;
             }
@@ -712,6 +933,7 @@ public:
     void userMenu() {
         vector<string> options = {
             "Просмотр каталога книг",
+            "Подробная информация о книге",
             "Поиск книг",
             "Взять книгу",
             "Вернуть книгу",
@@ -728,11 +950,12 @@ public:
 
             switch (choice) {
             case 0: displayAllBooks(); break;
-            case 1: searchBooks(); break;
-            case 2: borrowBook(); break;
-            case 3: returnBook(); break;
-            case 4: displayUserInfo(); break;
-            case 5:
+            case 1: viewBookDetails(); break;
+            case 2: searchBooks(); break;
+            case 3: borrowBook(); break;
+            case 4: returnBook(); break;
+            case 5: displayUserInfo(); break;
+            case 6:
                 logout();
                 return;
             }
@@ -740,7 +963,6 @@ public:
     }
 
     void run() {
-        // Устанавливаем кодировку для Windows
         SetConsoleCP(1251);
         SetConsoleOutputCP(1251);
 
