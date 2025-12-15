@@ -94,10 +94,24 @@ class LibrarySystem {
 private:
     vector<Book> books;
     vector<User> users;
-    map<int, int> userIdToIndex;  // Map ID пользователя к индексу в векторе users
+    map<int, int> userIdToIndex;
     int currentUserId;
     string usersFile = "users_data.txt";
     string booksFile = "books_data.txt";
+
+    // Данные администратора (хранятся в коде)
+    const int ADMIN_ID = 1;
+    const string ADMIN_NAME = "Администратор";
+    const string ADMIN_PASSWORD = "admin123";
+
+    void createDefaultAdmin() {
+        // Проверяем, нет ли уже администратора
+        if (userIdToIndex.find(ADMIN_ID) == userIdToIndex.end()) {
+            User admin(ADMIN_ID, ADMIN_NAME, ADMIN_PASSWORD, true);
+            users.push_back(admin);
+            userIdToIndex[ADMIN_ID] = users.size() - 1;
+        }
+    }
 
     void saveUsersData() {
         ofstream file(usersFile);
@@ -106,8 +120,21 @@ private:
             return;
         }
 
-        file << users.size() << "\n";
+        // Сохраняем только обычных пользователей (не администратора)
+        int regularUsersCount = 0;
         for (const auto& user : users) {
+            if (!user.isAdmin) {
+                regularUsersCount++;
+            }
+        }
+
+        file << regularUsersCount << "\n";
+        for (const auto& user : users) {
+            // Не сохраняем администратора в файл
+            if (user.isAdmin) {
+                continue;
+            }
+
             file << user.id << "\n"
                 << user.fullName << "\n"
                 << user.password << "\n"
@@ -123,17 +150,14 @@ private:
 
     void loadUsersData() {
         ifstream file(usersFile);
+        
+        // Всегда создаем администратора из кода
+        createDefaultAdmin();
+        
+        // Если файла нет, просто создаем администратора и выходим
         if (!file.is_open()) {
-            // Создаем администратора по умолчанию
-            User admin(1, "Администратор", "admin123", true);
-            users.push_back(admin);
-            userIdToIndex[1] = 0;  // Индекс первого элемента
-            saveUsersData();
             return;
         }
-
-        users.clear();
-        userIdToIndex.clear();
 
         int userCount;
         file >> userCount;
@@ -151,8 +175,19 @@ private:
             file >> isAdmin;
             file >> bookCount;
 
-            User user(id, fullName, password, isAdmin);
+            // Проверяем, не конфликтует ли ID с администратором
+            if (id == ADMIN_ID) {
+                // Пропускаем этого пользователя из файла (админ уже есть в коде)
+                for (int j = 0; j < bookCount; j++) {
+                    int temp;
+                    file >> temp;
+                }
+                file.ignore();
+                continue;
+            }
 
+            User user(id, fullName, password, isAdmin);
+            
             for (int j = 0; j < bookCount; j++) {
                 int bookId;
                 file >> bookId;
@@ -161,7 +196,7 @@ private:
             file.ignore();
 
             users.push_back(user);
-            userIdToIndex[id] = users.size() - 1;  // Сохраняем индекс последнего добавленного
+            userIdToIndex[id] = users.size() - 1;
         }
         file.close();
     }
@@ -244,13 +279,19 @@ private:
     }
 
     void saveAllData() {
-        saveUsersData();
+        saveUsersData();  // Сохраняет только обычных пользователей
         saveBooksData();
     }
 
     void loadAllData() {
-        loadUsersData();
+        // Загружаем книги
         loadBooksData();
+        
+        // Загружаем пользователей (админ уже создан в loadUsersData)
+        loadUsersData();
+        
+        // Проверяем, есть ли администратор
+        createDefaultAdmin();
     }
 
     void waitForAnyKey() {
@@ -310,14 +351,22 @@ public:
             return;
         }
 
-        int newId = users.empty() ? 1 : users.back().id + 1;
+        // Находим максимальный ID среди пользователей (кроме администратора)
+        int maxId = ADMIN_ID;  // Начинаем с ID администратора
+        for (const auto& user : users) {
+            if (user.id > maxId) {
+                maxId = user.id;
+            }
+        }
+        
+        int newId = maxId + 1;
         users.push_back(User(newId, fullName, password, false));
         userIdToIndex[newId] = users.size() - 1;
 
         cout << "\nРегистрация успешна! Ваш ID: " << newId << "\n";
         Sleep(1500);
 
-        saveUsersData();
+        saveUsersData();  // Сохраняем только обычных пользователей
     }
 
     bool loginUser() {
@@ -340,6 +389,23 @@ public:
         cin.ignore();
         getline(cin, password);
 
+        // Специальная проверка для администратора (из кода)
+        if (id == ADMIN_ID && password == ADMIN_PASSWORD) {
+            // Проверяем, существует ли уже администратор в системе
+            User* existingAdmin = getUserById(ADMIN_ID);
+            if (existingAdmin == nullptr) {
+                // Создаем администратора, если его нет
+                users.push_back(User(ADMIN_ID, ADMIN_NAME, ADMIN_PASSWORD, true));
+                userIdToIndex[ADMIN_ID] = users.size() - 1;
+            }
+            
+            currentUserId = ADMIN_ID;
+            cout << "\nВход выполнен успешно! Добро пожаловать, " << ADMIN_NAME << "!\n";
+            Sleep(1500);
+            return true;
+        }
+
+        // Проверка для обычных пользователей
         User* user = getUserById(id);
         if (user != nullptr && user->password == password) {
             currentUserId = id;
