@@ -16,7 +16,7 @@ struct Book {
     string author;
     string genre;
     int year;
-    string annotation;  // Добавлено поле для аннотации
+    string annotation;
     bool available;
 
     Book(int _id = 0, string _title = "", string _author = "", string _genre = "",
@@ -94,7 +94,7 @@ class LibrarySystem {
 private:
     vector<Book> books;
     vector<User> users;
-    map<int, User*> userMap;
+    map<int, int> userIdToIndex;  // Map ID пользователя к индексу в векторе users
     int currentUserId;
     string usersFile = "users_data.txt";
     string booksFile = "books_data.txt";
@@ -124,14 +124,16 @@ private:
     void loadUsersData() {
         ifstream file(usersFile);
         if (!file.is_open()) {
-            users.push_back(User(1, "Администратор", "admin123", true));
-            userMap[1] = &users.back();
+            // Создаем администратора по умолчанию
+            User admin(1, "Администратор", "admin123", true);
+            users.push_back(admin);
+            userIdToIndex[1] = 0;  // Индекс первого элемента
             saveUsersData();
             return;
         }
 
         users.clear();
-        userMap.clear();
+        userIdToIndex.clear();
 
         int userCount;
         file >> userCount;
@@ -149,17 +151,17 @@ private:
             file >> isAdmin;
             file >> bookCount;
 
-            users.push_back(User(id, fullName, password, isAdmin));
-            User* userPtr = &users.back();
+            User user(id, fullName, password, isAdmin);
 
             for (int j = 0; j < bookCount; j++) {
                 int bookId;
                 file >> bookId;
-                userPtr->borrowedBooks.push_back(bookId);
+                user.borrowedBooks.push_back(bookId);
             }
             file.ignore();
 
-            userMap[id] = userPtr;
+            users.push_back(user);
+            userIdToIndex[id] = users.size() - 1;  // Сохраняем индекс последнего добавленного
         }
         file.close();
     }
@@ -173,7 +175,6 @@ private:
 
         file << books.size() << "\n";
         for (const auto& book : books) {
-            // Заменяем символы новой строки в аннотации на специальный маркер
             string annotationForFile = book.annotation;
             replace(annotationForFile.begin(), annotationForFile.end(), '\n', '|');
 
@@ -182,7 +183,7 @@ private:
                 << book.author << "\n"
                 << book.genre << "\n"
                 << book.year << "\n"
-                << annotationForFile << "\n"  // Сохраняем аннотацию
+                << annotationForFile << "\n"
                 << book.available << "\n";
         }
         file.close();
@@ -233,7 +234,6 @@ private:
             file >> available;
             file.ignore();
 
-            // Восстанавливаем символы новой строки в аннотации
             replace(annotation.begin(), annotation.end(), '|', '\n');
 
             Book book(id, title, author, genre, year, annotation);
@@ -258,26 +258,21 @@ private:
         _getch();
     }
 
-    // Метод для ввода многострочной аннотации
-    string inputMultilineAnnotation() {
-        string annotation;
-        string line;
-
-        cout << "Введите аннотацию (для завершения введите точку на новой строке):\n";
-        cin.ignore(); // Очищаем буфер
-
-        while (true) {
-            getline(cin, line);
-            if (line == ".") {
-                break;
-            }
-            if (!annotation.empty()) {
-                annotation += "\n";
-            }
-            annotation += line;
+    // Получение пользователя по ID
+    User* getUserById(int id) {
+        if (userIdToIndex.find(id) == userIdToIndex.end()) {
+            return nullptr;
         }
+        int index = userIdToIndex[id];
+        if (index >= 0 && index < users.size()) {
+            return &users[index];
+        }
+        return nullptr;
+    }
 
-        return annotation;
+    // Получение текущего пользователя
+    User* getCurrentUser() {
+        return getUserById(currentUserId);
     }
 
 public:
@@ -317,7 +312,7 @@ public:
 
         int newId = users.empty() ? 1 : users.back().id + 1;
         users.push_back(User(newId, fullName, password, false));
-        userMap[newId] = &users.back();
+        userIdToIndex[newId] = users.size() - 1;
 
         cout << "\nРегистрация успешна! Ваш ID: " << newId << "\n";
         Sleep(1500);
@@ -345,10 +340,11 @@ public:
         cin.ignore();
         getline(cin, password);
 
-        if (userMap.find(id) != userMap.end() && userMap[id]->password == password) {
+        User* user = getUserById(id);
+        if (user != nullptr && user->password == password) {
             currentUserId = id;
             cout << "\nВход выполнен успешно! Добро пожаловать, "
-                << userMap[id]->fullName << "!\n";
+                << user->fullName << "!\n";
             Sleep(1500);
             return true;
         }
@@ -399,9 +395,7 @@ public:
             return;
         }
 
-        cin.ignore(); // Очищаем буфер для ввода аннотации
-
-        // Ввод аннотации
+        cin.ignore();
         cout << "\nВведите аннотацию к книге (для завершения введите точку на отдельной строке):\n";
         cout << "Можно вводить несколько строк:\n";
 
@@ -507,7 +501,6 @@ public:
         waitForAnyKey();
     }
 
-    // Новый метод для подробного просмотра книги с аннотацией
     void viewBookDetails() {
         system("cls");
         cout << "========== ПОДРОБНАЯ ИНФОРМАЦИЯ О КНИГЕ ==========\n";
@@ -566,7 +559,7 @@ public:
             "По названию",
             "По автору",
             "По жанру",
-            "По аннотации",  // Добавлен поиск по аннотации
+            "По аннотации",
             "Вернуться в меню"
         };
 
@@ -609,7 +602,7 @@ public:
             case 0: match = titleLower.find(searchTerm) != string::npos; break;
             case 1: match = authorLower.find(searchTerm) != string::npos; break;
             case 2: match = genreLower.find(searchTerm) != string::npos; break;
-            case 3: match = annotationLower.find(searchTerm) != string::npos; break;  // Поиск по аннотации
+            case 3: match = annotationLower.find(searchTerm) != string::npos; break;
             }
 
             if (match) {
@@ -630,7 +623,6 @@ public:
                     << "   Автор: " << book->author << "\n"
                     << "   Жанр: " << book->genre << "\n";
 
-                // Показываем краткую аннотацию (первые 100 символов)
                 if (!book->annotation.empty()) {
                     string shortAnnotation = book->annotation.substr(0, 100);
                     if (book->annotation.length() > 100) {
@@ -652,7 +644,13 @@ public:
         system("cls");
         cout << "========== ВЗЯТИЕ КНИГИ ==========\n";
 
-        User* user = userMap[currentUserId];
+        User* user = getCurrentUser();
+        if (user == nullptr) {
+            cout << "Ошибка: Пользователь не найден!\n";
+            Sleep(1500);
+            return;
+        }
+
         if (user->borrowedBooks.size() >= 5) {
             cout << "Ошибка: Вы не можете взять более 5 книг одновременно!\n";
             Sleep(1500);
@@ -674,7 +672,6 @@ public:
             return;
         }
 
-        // Показать аннотацию перед взятием?
         vector<string> borrowOptions = {
             "Взять книгу по ID",
             "Посмотреть аннотацию книги",
@@ -687,7 +684,6 @@ public:
         if (borrowChoice == 2) return;
 
         if (borrowChoice == 1) {
-            // Просмотр аннотации перед взятием
             cout << "\nВведите ID книги для просмотра аннотации: ";
             int previewId;
             if (!(cin >> previewId)) {
@@ -719,7 +715,6 @@ public:
                 return;
             }
 
-            // Проверяем доступность книги
             if (!previewIt->available) {
                 cout << "Ошибка: Эта книга уже выдана!\n";
                 Sleep(1500);
@@ -737,7 +732,6 @@ public:
             return;
         }
 
-        // Обычное взятие по ID
         cout << "\nВведите ID книги для взятия (0 - отмена): ";
         int bookId;
         if (!(cin >> bookId)) {
@@ -781,7 +775,12 @@ public:
         system("cls");
         cout << "========== ВОЗВРАТ КНИГИ ==========\n";
 
-        User* user = userMap[currentUserId];
+        User* user = getCurrentUser();
+        if (user == nullptr) {
+            cout << "Ошибка: Пользователь не найден!\n";
+            Sleep(1500);
+            return;
+        }
 
         if (user->borrowedBooks.empty()) {
             cout << "У вас нет взятых книг.\n";
@@ -838,7 +837,12 @@ public:
         system("cls");
         cout << "========== ВАШ ПРОФИЛЬ ==========\n";
 
-        User* user = userMap[currentUserId];
+        User* user = getCurrentUser();
+        if (user == nullptr) {
+            cout << "Ошибка: Пользователь не найден!\n";
+            waitForAnyKey();
+            return;
+        }
 
         cout << "ID: " << user->id << "\n";
         cout << "ФИО: " << user->fullName << "\n";
@@ -880,7 +884,8 @@ public:
             switch (choice) {
             case 0:
                 if (loginUser()) {
-                    if (userMap[currentUserId]->isAdmin) {
+                    User* user = getCurrentUser();
+                    if (user != nullptr && user->isAdmin) {
                         adminMenu();
                     }
                     else {
@@ -899,6 +904,12 @@ public:
     }
 
     void adminMenu() {
+        User* currentUser = getCurrentUser();
+        if (currentUser == nullptr) {
+            logout();
+            return;
+        }
+
         vector<string> options = {
             "Просмотр каталога книг",
             "Подробная информация о книге",
@@ -910,8 +921,7 @@ public:
         };
 
         while (true) {
-            User* user = userMap[currentUserId];
-            string title = "МЕНЮ АДМИНИСТРАТОРА | " + user->fullName;
+            string title = "МЕНЮ АДМИНИСТРАТОРА | " + currentUser->fullName;
 
             Menu menu(title, options);
             int choice = menu.run();
@@ -931,6 +941,12 @@ public:
     }
 
     void userMenu() {
+        User* currentUser = getCurrentUser();
+        if (currentUser == nullptr) {
+            logout();
+            return;
+        }
+
         vector<string> options = {
             "Просмотр каталога книг",
             "Подробная информация о книге",
@@ -942,8 +958,7 @@ public:
         };
 
         while (true) {
-            User* user = userMap[currentUserId];
-            string title = "МЕНЮ ЧИТАТЕЛЯ | " + user->fullName;
+            string title = "МЕНЮ ЧИТАТЕЛЯ | " + currentUser->fullName;
 
             Menu menu(title, options);
             int choice = menu.run();
