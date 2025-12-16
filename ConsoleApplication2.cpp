@@ -4,6 +4,7 @@
 #include <vector>
 #include <map>
 #include <algorithm>
+#include <ctime>
 #include <conio.h>
 #include <windows.h>
 using namespace std;
@@ -26,15 +27,156 @@ struct Book {
     }
 };
 
+// Структура для хранения информации о взятии книги
+struct BorrowRecord {
+    int bookId;
+    int borrowYear;    // Год взятия
+    int borrowMonth;   // Месяц взятия (1-12)
+    int borrowDay;     // День взятия (1-31)
+
+    BorrowRecord(int _bookId = 0)
+        : bookId(_bookId), borrowYear(0), borrowMonth(0), borrowDay(0) {
+    }
+
+    // Установить текущую дату
+    void setCurrentDate() {
+        time_t now = time(0);
+        tm t;
+
+        // Используем безопасную версию gmtime
+        if (gmtime_s(&t, &now) == 0) {
+            borrowYear = t.tm_year + 1900;
+            borrowMonth = t.tm_mon + 1;
+            borrowDay = t.tm_mday;
+        }
+    }
+
+    // Получить количество дней с момента взятия
+    int getDaysSinceBorrow() const {
+        if (borrowYear == 0) return 0;
+
+        time_t now = time(0);
+        tm currentTm;
+
+        if (gmtime_s(&currentTm, &now) != 0) {
+            return 0;
+        }
+
+        // Простой расчет дней (не точный, но достаточный для учебного проекта)
+        int currentYear = currentTm.tm_year + 1900;
+        int currentMonth = currentTm.tm_mon + 1;
+        int currentDay = currentTm.tm_mday;
+
+        // Расчет примерного количества дней
+        int totalDays = 0;
+
+        // Добавляем дни за полные годы
+        for (int year = borrowYear; year < currentYear; year++) {
+            totalDays += 365; // Упрощенный расчет, без учета високосных годов
+        }
+
+        // Добавляем дни за месяцы в текущем году
+        for (int month = 1; month < currentMonth; month++) {
+            totalDays += getDaysInMonth(month, currentYear);
+        }
+        totalDays += currentDay;
+
+        // Вычитаем дни до даты взятия в году взятия
+        for (int month = 1; month < borrowMonth; month++) {
+            totalDays -= getDaysInMonth(month, borrowYear);
+        }
+        totalDays -= borrowDay;
+
+        return totalDays;
+    }
+
+    // Проверить, просрочена ли книга (более 30 дней)
+    bool isOverdue() const {
+        return getDaysSinceBorrow() > 30;
+    }
+
+    // Получить оставшееся количество дней
+    int getDaysRemaining() const {
+        int daysPassed = getDaysSinceBorrow();
+        return 30 - daysPassed;
+    }
+
+    // Получить строковое представление даты
+    string getDateString() const {
+        if (borrowYear == 0) return "Не указано";
+
+        char buffer[20];
+        // Используем безопасную версию sprintf
+        snprintf(buffer, sizeof(buffer), "%02d.%02d.%04d",
+            borrowDay, borrowMonth, borrowYear);
+        return string(buffer);
+    }
+
+private:
+    // Получить количество дней в месяце (упрощенно)
+    int getDaysInMonth(int month, int year) const {
+        if (month == 2) {
+            // Простая проверка на високосный год
+            if (year % 4 == 0) return 29;
+            return 28;
+        }
+        if (month == 4 || month == 6 || month == 9 || month == 11) {
+            return 30;
+        }
+        return 31;
+    }
+};
+
 struct User {
     int id;
     string fullName;
     string password;
     bool isAdmin;
-    vector<int> borrowedBooks;
+    vector<BorrowRecord> borrowedBooks;
 
     User(int _id = 0, string _name = "", string _pass = "", bool _admin = false)
         : id(_id), fullName(_name), password(_pass), isAdmin(_admin) {
+    }
+
+    // Метод для проверки, есть ли у пользователя книга
+    bool hasBook(int bookId) const {
+        for (const auto& record : borrowedBooks) {
+            if (record.bookId == bookId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Метод для получения записи о взятии книги
+    BorrowRecord* getBorrowRecord(int bookId) {
+        for (auto& record : borrowedBooks) {
+            if (record.bookId == bookId) {
+                return &record;
+            }
+        }
+        return nullptr;
+    }
+
+    // Проверить, есть ли просроченные книги
+    bool hasOverdueBooks() const {
+        for (const auto& record : borrowedBooks) {
+            if (record.isOverdue()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Получить количество просроченных книг
+    int getOverdueCount() const {
+        int count = 0;
+        for (const auto& record : borrowedBooks) {
+            if (record.isOverdue()) {
+                count++;
+            }
+        }
+        return count;
     }
 };
 
@@ -140,8 +282,12 @@ private:
                 << user.password << "\n"
                 << user.isAdmin << "\n"
                 << user.borrowedBooks.size() << " ";
-            for (int bookId : user.borrowedBooks) {
-                file << bookId << " ";
+
+            for (const auto& record : user.borrowedBooks) {
+                file << record.bookId << " "
+                    << record.borrowYear << " "
+                    << record.borrowMonth << " "
+                    << record.borrowDay << " ";
             }
             file << "\n";
         }
@@ -179,8 +325,8 @@ private:
             if (id == ADMIN_ID) {
                 // Пропускаем этого пользователя из файла (админ уже есть в коде)
                 for (int j = 0; j < bookCount; j++) {
-                    int temp;
-                    file >> temp;
+                    int tempId, year, month, day;
+                    file >> tempId >> year >> month >> day;
                 }
                 file.ignore();
                 continue;
@@ -189,9 +335,13 @@ private:
             User user(id, fullName, password, isAdmin);
 
             for (int j = 0; j < bookCount; j++) {
-                int bookId;
-                file >> bookId;
-                user.borrowedBooks.push_back(bookId);
+                int bookId, year, month, day;
+                file >> bookId >> year >> month >> day;
+                BorrowRecord record(bookId);
+                record.borrowYear = year;
+                record.borrowMonth = month;
+                record.borrowDay = day;
+                user.borrowedBooks.push_back(record);
             }
             file.ignore();
 
@@ -269,9 +419,8 @@ private:
             books.push_back(Book(8, "А зори здесь тихие...", "Б.Л. Васильев", "Драма", 1969,
                 "Повесть Б. Васильева «А зори здесь тихие…» основана на реальных событиях и является одним из самых проникновенных и трагических произведений о Великой Отечественной войне. Война не делает различий.\n"
                 "Возраст, пол, национальность — все едины и равны перед общей бедой. Пять обычных девушек-зенитчиц с разными судьбами и характерами и старшина-мужчина, ясно осознавая, что идут на смерть, вступают в неравный бой\n"
-                "с отрядом немецких диверсантов и трагически гибнут, стараясь хоть как-то помешать противнику и задержать его. Герои повести совершают настоящий подвиг, но он даже не попадает в сводки военных событий.\n"
+                "с отрядом немецких диверсантов и трагически гибнут, стараясь хоть как-то помешать противнику и задержать его. Герои повети совершают настоящий подвиг, но он даже не попадает в сводки военных событий.\n"
                 "Тысячи подобных подвигов, которые, к великому сожалению, были забыты, привели к долгожданной победе на этой страшной войне. Повесть написана в память тех, кто отдал свою жизнь, защищая Родину."));
-
 
             saveBooksData();
             return;
@@ -309,7 +458,6 @@ private:
         file.close();
     }
 
-
     void saveAllData() {
         saveUsersData();  // Сохраняет только обычных пользователей
         saveBooksData();
@@ -346,6 +494,54 @@ private:
     // Получение текущего пользователя
     User* getCurrentUser() {
         return getUserById(currentUserId);
+    }
+
+    // Показать информацию о взятых книгах с датами
+    void displayBorrowedBooksWithDates(User* user) {
+        if (user->borrowedBooks.empty()) {
+            cout << "У вас нет взятых книг.\n";
+            return;
+        }
+
+        cout << "Ваши взятые книги:\n\n";
+        for (const auto& record : user->borrowedBooks) {
+            auto it = find_if(books.begin(), books.end(),
+                [record](const Book& b) { return b.id == record.bookId; });
+
+            if (it != books.end()) {
+                int daysPassed = record.getDaysSinceBorrow();
+                int daysLeft = record.getDaysRemaining();
+
+                cout << "ID: " << record.bookId << " - \"" << it->title << "\"\n";
+                cout << "  Дата взятия: " << record.getDateString() << "\n";
+                cout << "  Прошло дней: " << daysPassed << "\n";
+
+                if (record.isOverdue()) {
+                    cout << "  Статус: ПРОСРОЧЕНО! (" << -daysLeft << " дней просрочки)\n";
+                }
+                else if (daysLeft > 0) {
+                    cout << "  Статус: Осталось " << daysLeft << " дней\n";
+                }
+                else {
+                    cout << "  Статус: Срок возврата сегодня!\n";
+                }
+                cout << "----------------------------------------\n";
+            }
+        }
+    }
+
+    // Показать предупреждение о просроченных книгах
+    void showOverdueWarning(User* user) {
+        int overdueCount = user->getOverdueCount();
+
+        if (overdueCount > 0) {
+            system("cls");
+            cout << "========== ВНИМАНИЕ! ==========\n";
+            cout << "У вас есть " << overdueCount << " просроченных книг!\n";
+            cout << "Пожалуйста, верните их как можно скорее.\n";
+            cout << "===============================\n";
+            waitForAnyKey();
+        }
     }
 
 public:
@@ -444,6 +640,12 @@ public:
             cout << "\nВход выполнен успешно! Добро пожаловать, "
                 << user->fullName << "!\n";
             Sleep(1500);
+
+            // Проверяем просроченные книги при входе
+            if (user->hasOverdueBooks()) {
+                showOverdueWarning(user);
+            }
+
             return true;
         }
         else {
@@ -749,6 +951,14 @@ public:
             return;
         }
 
+        // Проверяем, есть ли у пользователя просроченные книги
+        if (user->hasOverdueBooks()) {
+            cout << "Ошибка: У вас есть просроченные книги!\n";
+            cout << "Пожалуйста, верните их прежде чем брать новые.\n";
+            Sleep(2500);
+            return;
+        }
+
         if (user->borrowedBooks.size() >= 5) {
             cout << "Ошибка: Вы не можете взять более 5 книг одновременно!\n";
             Sleep(1500);
@@ -819,11 +1029,16 @@ public:
                 return;
             }
 
+            // Берем книгу с записью текущей даты
             previewIt->available = false;
-            user->borrowedBooks.push_back(previewId);
+            BorrowRecord record(previewId);
+            record.setCurrentDate();
+            user->borrowedBooks.push_back(record);
 
             cout << "\nКнига \"" << previewIt->title << "\" успешно взята!\n";
-            Sleep(1500);
+            cout << "Дата взятия: " << record.getDateString() << "\n";
+            cout << "Срок возврата: 30 дней\n";
+            Sleep(2000);
 
             saveBooksData();
             saveUsersData();
@@ -857,11 +1072,16 @@ public:
             return;
         }
 
+        // Берем книгу с записью текущей даты
         it->available = false;
-        user->borrowedBooks.push_back(bookId);
+        BorrowRecord record(bookId);
+        record.setCurrentDate();
+        user->borrowedBooks.push_back(record);
 
         cout << "\nКнига \"" << it->title << "\" успешно взята!\n";
-        Sleep(1500);
+        cout << "Дата взятия: " << record.getDateString() << "\n";
+        cout << "Срок возврата: 30 дней\n";
+        Sleep(2000);
 
         saveBooksData();
         saveUsersData();
@@ -886,14 +1106,8 @@ public:
             return;
         }
 
-        cout << "Ваши взятые книги:\n\n";
-        for (int bookId : user->borrowedBooks) {
-            auto it = find_if(books.begin(), books.end(),
-                [bookId](const Book& b) { return b.id == bookId; });
-            if (it != books.end()) {
-                cout << "ID: " << bookId << " - \"" << it->title << "\"\n";
-            }
-        }
+        // Показываем книги с информацией о сроке
+        displayBorrowedBooksWithDates(user);
 
         cout << "\nВведите ID книги для возврата (0 - отмена): ";
         int bookId;
@@ -907,8 +1121,15 @@ public:
 
         if (bookId == 0) return;
 
-        auto bookIt = find(user->borrowedBooks.begin(), user->borrowedBooks.end(), bookId);
-        if (bookIt == user->borrowedBooks.end()) {
+        // Находим запись о взятии книги
+        auto recordIt = user->borrowedBooks.begin();
+        for (; recordIt != user->borrowedBooks.end(); ++recordIt) {
+            if (recordIt->bookId == bookId) {
+                break;
+            }
+        }
+
+        if (recordIt == user->borrowedBooks.end()) {
             cout << "Ошибка: У вас нет книги с таким ID!\n";
             Sleep(1500);
             return;
@@ -918,11 +1139,31 @@ public:
             [bookId](const Book& b) { return b.id == bookId; });
 
         if (libIt != books.end()) {
+            // Вычисляем просрочку
+            int daysPassed = recordIt->getDaysSinceBorrow();
+            bool wasOverdue = recordIt->isOverdue();
+
             libIt->available = true;
-            user->borrowedBooks.erase(bookIt);
+            user->borrowedBooks.erase(recordIt);
 
             cout << "\nКнига \"" << libIt->title << "\" успешно возвращена!\n";
-            Sleep(1500);
+
+            if (wasOverdue) {
+                int overdueDays = daysPassed - 30;
+                cout << "Книга была просрочена на " << overdueDays << " дней\n";
+            }
+            else if (daysPassed > 30) {
+                cout << "Книга возвращена с опозданием на " << (daysPassed - 30) << " дней\n";
+            }
+            else if (daysPassed == 30) {
+                cout << "Книга возвращена в срок\n";
+            }
+            else {
+                int daysLeft = 30 - daysPassed;
+                cout << "Книга возвращена досрочно (оставалось " << daysLeft << " дней)\n";
+            }
+
+            Sleep(2500);
 
             saveBooksData();
             saveUsersData();
@@ -954,12 +1195,38 @@ public:
 
         if (!user->borrowedBooks.empty()) {
             cout << "\nСписок взятых книг:\n";
-            for (int bookId : user->borrowedBooks) {
+            cout << "========================================\n";
+
+            for (const auto& record : user->borrowedBooks) {
                 auto it = find_if(books.begin(), books.end(),
-                    [bookId](const Book& b) { return b.id == bookId; });
+                    [record](const Book& b) { return b.id == record.bookId; });
+
                 if (it != books.end()) {
-                    cout << "  • " << it->title << " (ID: " << bookId << ")\n";
+                    int daysPassed = record.getDaysSinceBorrow();
+                    int daysLeft = record.getDaysRemaining();
+
+                    cout << "  • " << it->title << " (ID: " << record.bookId << ")\n";
+                    cout << "    Дата взятия: " << record.getDateString() << "\n";
+                    cout << "    Прошло дней: " << daysPassed << "\n";
+
+                    if (record.isOverdue()) {
+                        cout << "    Статус: ПРОСРОЧЕНО! (" << -daysLeft << " дней просрочки)\n";
+                    }
+                    else if (daysLeft > 0) {
+                        cout << "    Осталось дней: " << daysLeft << "\n";
+                    }
+                    else {
+                        cout << "    Статус: Срок возврата сегодня!\n";
+                    }
+                    cout << "    ---------------------------------\n";
                 }
+            }
+
+            // Показываем общую статистику
+            int overdueCount = user->getOverdueCount();
+
+            if (overdueCount > 0) {
+                cout << "\nВНИМАНИЕ: У вас " << overdueCount << " просроченных книг!\n";
             }
         }
 
